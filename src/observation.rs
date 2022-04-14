@@ -117,16 +117,11 @@ impl TryFrom<StringRecord> for Observation {
 
 #[cfg(test)]
 mod test {
+    use super::DataRecording;
+    use crate::observation::Observation;
+    use async_std::task::block_on;
     use chrono::NaiveDate;
     use reqwest::Client;
-    use crate::observation::Observation;
-    use super::DataRecording;
-
-    macro_rules! aw {
-        ($e:expr) => {
-            tokio_test::block_on($e)
-        };
-    }
 
     // https://cdec.water.ca.gov/dynamicapp/req/CSVDataServlet?Stations=VIL&SensorNums=15&dur_code=D&Start=2022-02-15&End=2022-02-28
     const STR_RESULT: &str = r#"STATION_ID,DURATION,SENSOR_NUMBER,SENSOR_TYPE,DATE TIME,OBS DATE,VALUE,DATA_FLAG,UNITS
@@ -155,12 +150,10 @@ VIL,D,15,STORAGE,20220228 0000,20220228 0000,9597, ,AF
         let start_date = NaiveDate::from_ymd(2022, 02, 15);
         let end_date = NaiveDate::from_ymd(2022, 02, 28);
         let client = Client::new();
-        let observations = aw!(Observation::http_request_body(
-            &client,
-            reservoir_id,
-            &start_date,
-            &end_date
-        ));
+        let observations =
+        block_on(async {
+                Observation::http_request_body(&client, reservoir_id, &start_date, &end_date).await
+        });
         assert_eq!(observations.unwrap().as_str().replace("\r\n", "\n"), STR_RESULT);
     }
 
@@ -173,12 +166,11 @@ VIL,D,15,STORAGE,20220228 0000,20220228 0000,9597, ,AF
         let start_date = NaiveDate::from_ymd(2022, 02, 15);
         let end_date = NaiveDate::from_ymd(2022, 02, 28);
         let client = Client::new();
-        let observations = aw!(Observation::get_observations(
-            &client,
-            reservoir_id,
-            &start_date,
-            &end_date
-        ));
+        let observations =
+        block_on(async {
+                Observation::get_observations(&client, reservoir_id, &start_date, &end_date)
+                    .await
+        });
         assert_eq!(observations.unwrap().len(), 14);
     }
 

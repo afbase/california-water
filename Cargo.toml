@@ -4,12 +4,48 @@ version = "0.1.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 csv = "1.1.6"
 chrono = "0.4.19"
 serde = { version = "1.0", features = ["derive"] }
 reqwest = "0.11.10"
-
 [dev-dependencies]
-tokio-test = "*"
+async-std = "1.11.0"
+# [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+#[target.'cfg(not(target_arch = "wasm32"))'.dev-dependencies]
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+js-sys = "0.3.45"
+serde_json = "1.0"
+wasm-bindgen = "0.2.68"
+wasm-bindgen-futures = "0.4.18"
+plotters-canvas = "^0.3.*"
+wee_alloc = "0.4.5"
+
+[target.'cfg(target_arch = "wasm32")'.dependencies.web-sys]
+version = "0.3.39"
+features = [
+    "HtmlCanvasElement",
+    "Headers",
+    "Request",
+    "RequestInit",
+    "RequestMode",
+    "Response",
+    "Window",
+    "FormData",
+    "Blob",
+    "BlobPropertyBag",
+    "ServiceWorkerGlobalScope",
+    "RequestCredentials",
+    "File"
+]
+
+[target.'cfg(target_arch = "wasm32")'.dev-dependencies]
+wasm-bindgen = { version = "0.2.68", features = ["serde-serialize"] }
+wasm-bindgen-test = "0.3"
+
+[target.'cfg(target_arch = "wasm32")'.profile.release]
+lto = true
+
+[target.'cfg(target_arch = "wasm32")'.lib]
+crate-type=["cdylib"]

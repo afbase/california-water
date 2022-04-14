@@ -21,7 +21,7 @@ fn get_default_capacity<'life>() -> &'life str {
 }
 
 impl Reservoir {
-    // collects reservoir information from 
+    // collects reservoir information from https://raw.githubusercontent.com/afbase/california-water/main/obj/capacity.csv
     pub fn get_reservoir_vector() -> Vec<Reservoir> {
         if let Ok(r) = Reservoir::parse_reservoir_csv() {
             r
