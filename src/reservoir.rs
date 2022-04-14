@@ -21,6 +21,7 @@ fn get_default_capacity<'life>() -> &'life str {
 }
 
 impl Reservoir {
+    // collects reservoir information from 
     pub fn get_reservoir_vector() -> Vec<Reservoir> {
         if let Ok(r) = Reservoir::parse_reservoir_csv() {
             r
