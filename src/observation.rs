@@ -119,7 +119,6 @@ impl TryFrom<StringRecord> for Observation {
 mod test {
     use super::DataRecording;
     use crate::observation::Observation;
-    use async_std::task::block_on;
     use chrono::NaiveDate;
     use reqwest::Client;
 
@@ -141,8 +140,9 @@ VIL,D,15,STORAGE,20220227 0000,20220227 0000,9597, ,AF
 VIL,D,15,STORAGE,20220228 0000,20220228 0000,9597, ,AF
 "#;
 
-    #[test]
-    fn test_http_request_body() {
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn test_http_request_body() {
         // ID , DAM , LAKE          , STREAM        , CAPACITY (AF), YEAR FILL
         // VIL, Vail, Vail Reservoir, Temecula Creek, 51000,
         // https://cdec.water.ca.gov/dynamicapp/req/CSVDataServlet?Stations=VIL&SensorNums=15&dur_code=D&Start=2022-02-15&End=2022-02-28
@@ -151,14 +151,16 @@ VIL,D,15,STORAGE,20220228 0000,20220228 0000,9597, ,AF
         let end_date = NaiveDate::from_ymd(2022, 02, 28);
         let client = Client::new();
         let observations =
-        block_on(async {
-                Observation::http_request_body(&client, reservoir_id, &start_date, &end_date).await
-        });
-        assert_eq!(observations.unwrap().as_str().replace("\r\n", "\n"), STR_RESULT);
+            Observation::http_request_body(&client, reservoir_id, &start_date, &end_date).await;
+        assert_eq!(
+            observations.unwrap().as_str().replace("\r\n", "\n"),
+            STR_RESULT
+        );
     }
 
-    #[test]
-    fn test_get_observations() {
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn test_get_observations() {
         // ID , DAM , LAKE          , STREAM        , CAPACITY (AF), YEAR FILL
         // VIL, Vail, Vail Reservoir, Temecula Creek, 51000,
         // https://cdec.water.ca.gov/dynamicapp/req/CSVDataServlet?Stations=VIL&SensorNums=15&dur_code=D&Start=2022-02-15&End=2022-02-28
@@ -167,10 +169,7 @@ VIL,D,15,STORAGE,20220228 0000,20220228 0000,9597, ,AF
         let end_date = NaiveDate::from_ymd(2022, 02, 28);
         let client = Client::new();
         let observations =
-        block_on(async {
-                Observation::get_observations(&client, reservoir_id, &start_date, &end_date)
-                    .await
-        });
+            Observation::get_observations(&client, reservoir_id, &start_date, &end_date).await;
         assert_eq!(observations.unwrap().len(), 14);
     }
 
