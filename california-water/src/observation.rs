@@ -1,8 +1,10 @@
-use core::result::Result;
-
+use crate::reservoir::Reservoir;
 use chrono::naive::NaiveDate;
+use core::result::Result;
 use csv::{ReaderBuilder, StringRecord};
+use futures::future::{join, join_all};
 use reqwest::Client;
+use std::collections::BTreeMap;
 const DATE_FORMAT: &str = "%Y%m%d %H%M";
 const YEAR_FORMAT: &str = "%Y-%m-%d";
 const CSV_ROW_LENGTH: usize = 9;
@@ -11,6 +13,7 @@ const CSV_ROW_LENGTH: usize = 9;
 pub enum ObservationError {
     HttpRequestError,
     HttpResponseParseError,
+    ObservationCollectionError,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -35,6 +38,46 @@ pub struct Observation {
 }
 
 impl Observation {
+    pub async fn get_all_reservoirs_data_by_dates(
+        start_date: &NaiveDate,
+        end_date: &NaiveDate,
+    ) -> Result<BTreeMap<NaiveDate, u32>, ObservationError> {
+        let reservoirs = Reservoir::get_reservoir_vector();
+        let mut date_water_btree: BTreeMap<NaiveDate, u32> = BTreeMap::new();
+        let client = Client::new();
+        let all_reservoir_observations = join_all(reservoirs.iter().map(|reservoir| {
+            let client_ref = &client;
+            let start_date_ref = start_date;
+            let end_date_ref = end_date;
+            async move {
+                Observation::get_observations(
+                    client_ref,
+                    reservoir.station_id.as_str(),
+                    start_date_ref,
+                    end_date_ref,
+                )
+                .await
+            }
+        }))
+        .await;
+        for reservoir_observations in all_reservoir_observations {
+            let observations = reservoir_observations.unwrap();
+            for observation in observations {
+                let k = {
+                    if let DataRecording::Recording(v) = observation.value {
+                        v
+                    } else {
+                        0u32
+                    }
+                };
+                date_water_btree
+                    .entry(observation.date_observation)
+                    .and_modify(|e| *e += k)
+                    .or_insert(k);
+            }
+        }
+        Ok(date_water_btree)
+    }
     pub async fn get_observations(
         client: &Client,
         reservoir_id: &str,
@@ -121,6 +164,7 @@ mod test {
     use crate::observation::Observation;
     use chrono::NaiveDate;
     use reqwest::Client;
+    use std::assert_ne;
 
     // https://cdec.water.ca.gov/dynamicapp/req/CSVDataServlet?Stations=VIL&SensorNums=15&dur_code=D&Start=2022-02-15&End=2022-02-28
     const STR_RESULT: &str = r#"STATION_ID,DURATION,SENSOR_NUMBER,SENSOR_TYPE,DATE TIME,OBS DATE,VALUE,DATA_FLAG,UNITS
@@ -140,6 +184,18 @@ VIL,D,15,STORAGE,20220227 0000,20220227 0000,9597, ,AF
 VIL,D,15,STORAGE,20220228 0000,20220228 0000,9597, ,AF
 "#;
 
+    #[cfg(not(target_family = "wasm"))]
+    #[tokio::test]
+    async fn test_get_all_reservoirs_data_by_dates() {
+        let start_date = NaiveDate::from_ymd(2022, 02, 15);
+        let end_date = NaiveDate::from_ymd(2022, 02, 28);
+        let obs = Observation::get_all_reservoirs_data_by_dates(&start_date, &end_date)
+            .await
+            .unwrap();
+        for (_, val) in obs.iter() {
+            assert_ne!(*val, 0u32);
+        }
+    }
     #[cfg(not(target_family = "wasm"))]
     #[tokio::test]
     async fn test_http_request_body() {

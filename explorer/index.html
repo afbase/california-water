@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
+    <title>Giphy Client</title>
+
+    <!-- <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.4/css/bulma.min.css"> -->
+    <!-- <link rel="stylesheet" href="/static/index.css"> -->
+    <script src="https://kit.fontawesome.com/01f46ff9d4.js" crossorigin="anonymous"></script>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script src="/static/client.js"></script>
+    <script>
+        const { start } = wasm_bindgen;
+        function run() { start(); }
+        wasm_bindgen('/static/client_bg.wasm')
+          .then(run)
+          .catch(console.error);
+    </script>
+  </body>
+</html>
