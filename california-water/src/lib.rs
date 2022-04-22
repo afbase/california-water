@@ -1,2 +1,2 @@
-pub(crate) mod observation;
-pub(crate) mod reservoir;
+pub mod observation;
+pub mod reservoir;

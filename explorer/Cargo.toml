@@ -12,16 +12,19 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 wasm-bindgen = "0.2.63"
+futures = "0.3.21"
+js-sys = "0.3.57"
 # `wee_alloc` is a tiny allocator for wasm that is only ~1K in code size
 # compared to the default allocator's ~10K. It is slower than the default
 # allocator, however.
 #
 # Unfortunately, `wee_alloc` requires nightly Rust when targeting wasm for now.
 wee_alloc = { version = "0.4.5", optional = true }
-california-water = {version="0.1.0", path="../california-water"}
 chrono = "0.4.19"
-js-sys = "0.3.57"
-
+plotters = "0.3.1"
+plotters-canvas = "0.3.0"
+easy-cast = "0.4.4"
+california-water = {version="0.1.0", path="../california-water"}
 
 [dependencies.web-sys]
 version = "0.3.39"
