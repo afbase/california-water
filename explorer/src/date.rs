@@ -2,19 +2,18 @@ use chrono::NaiveDate;
 use js_sys::Date;
 use std::convert::TryFrom;
 
+#[derive(Debug)]
 pub enum DateConversionError {
     JsDateYearConversionError,
 }
 
 pub struct DateWrapper {
-    pub date: Date
+    pub date: Date,
 }
 
 impl DateWrapper {
     pub fn new(date_obj: Date) -> DateWrapper {
-        DateWrapper{
-            date: date_obj
-        }
+        DateWrapper { date: date_obj }
     }
 }
 

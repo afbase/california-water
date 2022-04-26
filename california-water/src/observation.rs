@@ -2,7 +2,7 @@ use crate::reservoir::Reservoir;
 use chrono::naive::NaiveDate;
 use core::result::Result;
 use csv::{ReaderBuilder, StringRecord};
-use futures::future::{join, join_all};
+use futures::future::join_all;
 use reqwest::Client;
 use std::collections::BTreeMap;
 const DATE_FORMAT: &str = "%Y%m%d %H%M";
@@ -136,7 +136,7 @@ impl TryFrom<StringRecord> for Observation {
         };
         let date_recording_value = NaiveDate::parse_from_str(value.get(4).unwrap(), DATE_FORMAT);
         let date_observation_value = NaiveDate::parse_from_str(value.get(5).unwrap(), DATE_FORMAT);
-        let data_value = match value.get(6).unwrap() {
+        let data_value: Result<DataRecording, ()> = match value.get(6).unwrap() {
             "BRT" => Ok(DataRecording::Brt),
             "ART" => Ok(DataRecording::Art),
             "---" => Ok(DataRecording::Dash),
@@ -144,7 +144,7 @@ impl TryFrom<StringRecord> for Observation {
                 Err(_p) => Ok(DataRecording::Recording(0u32)),
                 Ok(u) => Ok(DataRecording::Recording(u)),
             },
-            _ => Err(()),
+            // _ => Err(()),
         };
         if duration == Ok(Duration::Daily) {
             return Ok(Observation {

@@ -1,6 +1,6 @@
 // mod utils;
-mod date;
 mod chart;
+mod date;
 pub use self::chart::Chart;
 
 // When the `wee_alloc` feature is enabled, use `wee_alloc` as the global
