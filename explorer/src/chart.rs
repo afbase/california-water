@@ -7,6 +7,7 @@ use plotters::prelude::*;
 use plotters_canvas::CanvasBackend;
 use std::collections::BTreeMap;
 use std::convert::TryFrom;
+use std::ops::Range;
 use wasm_bindgen::prelude::*;
 use web_sys::HtmlCanvasElement;
 /// Type alias for the result of a drawing function.
@@ -32,11 +33,14 @@ struct ReservoirObservationChart {
 }
 
 impl Chart {
+    // https://rustwasm.github.io/wasm-bindgen/reference/js-promises-and-rust-futures.html
+    // https://github.com/rustwasm/wasm-bindgen/issues/1858
     pub async fn build_chart(
         canvas: HtmlCanvasElement,
         start_date_js: Date,
         end_date_js: Date,
     ) -> DrawResult<()> {
+
         // get california water reservoir data
         let start_wrapper = DateWrapper::new(start_date_js);
         let end_wrapper = DateWrapper::new(end_date_js);
@@ -50,7 +54,7 @@ impl Chart {
             data_btree: observations,
             canvas,
         };
-        reservoir_chart.chart();
+        reservoir_chart.chart().unwrap();
         Ok(())
     }
 
@@ -67,21 +71,26 @@ impl ReservoirObservationChart {
         let start_date = dates.as_slice().first().unwrap();
         let end_date = dates.as_slice().last().unwrap();
         //Goal get max and min value of btree:
+        let date_range = Range {
+            start: *start_date,
+            end: *end_date,
+        };
+        let ranged_date: RangedDate<NaiveDate> = date_range.into();
         let values = self.data_btree.values().cloned().collect::<Vec<u32>>();
         let y_max: f64 = (*values.iter().max().unwrap() as i64).cast();
         let y_min: f64 = (*values.iter().min().unwrap() as i64).cast();
-        let x_max = values.len() as f64;
+        let _x_max = values.len() as f64;
         let x_labels_amount = (end_date.year() - start_date.year()) as usize;
         // setup chart
         // setup canvas drawing area
         let backend = CanvasBackend::with_canvas_object(self.canvas).unwrap();
         let backend_drawing_area = backend.into_drawing_area();
-        backend_drawing_area.fill(&WHITE);
+        backend_drawing_area.fill(&WHITE).unwrap();
         let mut chart = ChartBuilder::on(&backend_drawing_area)
             .margin(20i32)
-            .x_label_area_size(10i32)
-            .y_label_area_size(10i32)
-            .build_cartesian_2d(start_date..end_date, y_min..y_max)
+            .x_label_area_size(10u32)
+            .y_label_area_size(10u32)
+            .build_cartesian_2d(ranged_date, y_min..y_max)
             .unwrap();
         // .build_cartesian_2d(-2.1..0.6, -1.2..1.2)?;
 
