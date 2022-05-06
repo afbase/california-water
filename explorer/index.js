@@ -16,12 +16,12 @@ let chart = null;
 
 /** Main entry point */
 export function main() {
-	let hash = location.hash.substr(1);
-	for(var i = 0; i < plotType.options.length; i++) {
-		if(hash == plotType.options[i].value) {
-			plotType.value = hash;
-		}
-	}
+	// let hash = location.hash.substr(1);
+	// for(var i = 0; i < plotType.options.length; i++) {
+	// 	if(hash == plotType.options[i].value) {
+	// 		plotType.value = hash;
+	// 	}
+	// }
     setupUI();
     setupCanvas();
 }
