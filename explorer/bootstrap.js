@@ -11,7 +11,7 @@ async function init() {
         main();
     } else {
         const [{Chart, default: init}, {main, setup}] = await Promise.all([
-            import("../pkg/explorer.js"),
+            import("./pkg/explorer.js"),
             import("./index.js"),
         ]);
         await init();

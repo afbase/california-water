@@ -9,6 +9,7 @@ use std::collections::BTreeMap;
 use std::convert::TryFrom;
 use std::ops::Range;
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::spawn_local;
 use web_sys::HtmlCanvasElement;
 /// Type alias for the result of a drawing function.
 pub type DrawResult<T> = Result<T, Box<dyn std::error::Error>>;
@@ -27,35 +28,37 @@ pub struct Chart {
     convert: Box<dyn Fn((i32, i32)) -> Option<(f64, f64)>>,
 }
 
+#[wasm_bindgen]
 struct ReservoirObservationChart {
     data_btree: BTreeMap<NaiveDate, u32>,
     canvas: HtmlCanvasElement,
 }
 
+#[wasm_bindgen]
 impl Chart {
-    // https://rustwasm.github.io/wasm-bindgen/reference/js-promises-and-rust-futures.html
     // https://github.com/rustwasm/wasm-bindgen/issues/1858
-    pub async fn build_chart(
+    pub fn build_chart(
         canvas: HtmlCanvasElement,
         start_date_js: Date,
         end_date_js: Date,
-    ) -> DrawResult<()> {
-
-        // get california water reservoir data
-        let start_wrapper = DateWrapper::new(start_date_js);
-        let end_wrapper = DateWrapper::new(end_date_js);
-        let start_date = NaiveDate::try_from(start_wrapper).unwrap();
-        let end_date = NaiveDate::try_from(end_wrapper).unwrap();
-        let observations = Observation::get_all_reservoirs_data_by_dates(&start_date, &end_date)
-            .await
-            .unwrap();
-        // reservoir all the things
-        let reservoir_chart = ReservoirObservationChart {
-            data_btree: observations,
-            canvas,
-        };
-        reservoir_chart.chart().unwrap();
-        Ok(())
+    ) -> () {
+        // https://rustwasm.github.io/wasm-bindgen/reference/js-promises-and-rust-futures.html
+        spawn_local(async {
+            // get california water reservoir data
+            let start_wrapper = DateWrapper::new(start_date_js);
+            let end_wrapper = DateWrapper::new(end_date_js);
+            let start_date = NaiveDate::try_from(start_wrapper).unwrap();
+            let end_date = NaiveDate::try_from(end_wrapper).unwrap();
+            if let Ok(observations) = Observation::get_all_reservoirs_data_by_dates(&start_date, &end_date)
+            .await {
+                // reservoir all the things
+                let reservoir_chart = ReservoirObservationChart {
+                    data_btree: observations,
+                    canvas,
+                };
+                reservoir_chart.chart().unwrap();
+            }
+        });
     }
 
     /// This function can be used to convert screen coordinates to
