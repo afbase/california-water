@@ -81,8 +81,10 @@ function updatePlot() {
     // status.innerText = `Rendering ${selected.innerText}...`;
     chart = null;
     const start = performance.now();
+	const js_start_date = new Date(start_date.value);
+	const js_end_date = new Date(end_date.value);
 	if (start_date.value < end_date.value) {
-		chart = Chart.build_chart(canvas,start_date,end_date);
+		chart = Chart.build_chart(canvas,js_start_date,js_end_date);
 	} else {
 		status.value = "make sure the start date is earlier than the end date";
 	}
