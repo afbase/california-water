@@ -89,20 +89,6 @@ function updatePlot() {
 		status.value = "make sure the start date is earlier than the end date";
 	}
 	
-	// switch(selected.value) {
-	// 	case "mandelbrot":
-	// 		control.classList.add("hide");
-	// 		chart = Chart.mandelbrot(canvas);
-	// 		break;
-	// 	case "3d-plot": 
-	// 		control.classList.remove("hide");
-	// 		updatePlot3d();
-	// 		break;
-	// 	default:
-	// 		control.classList.add("hide");
-	// 		chart = Chart.power("canvas", Number(selected.value))
-	// }
-	
     const end = performance.now();
     // status.innerText = `Rendered ${selected.innerText} in ${Math.ceil(end - start)}ms`;
 }

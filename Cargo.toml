@@ -2,5 +2,7 @@
 
 members = [
     "california-water",
-    "explorer"
+    "explorer",
+    "server",
+    "cli"
 ]
