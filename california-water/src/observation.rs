@@ -38,6 +38,30 @@ pub struct Observation {
 }
 
 impl Observation {
+    // pub async fn get_all_reservoirs_csv_records_by_dates(
+    //     start_date: &NaiveDate,
+    //     end_date: &NaiveDate,
+    // ) -> Result<BTreeMap<NaiveDate, u32>, ObservationError> {
+    //     let reservoirs = Reservoir::get_reservoir_vector();
+    //     let mut date_water_btree: BTreeMap<NaiveDate, u32> = BTreeMap::new();
+    //     let client = Client::new();
+    //     let all_reservoir_observations = join_all(reservoirs.iter().map(|reservoir| {
+    //         let client_ref = &client;
+    //         let start_date_ref = start_date;
+    //         let end_date_ref = end_date;
+    //         async move {
+    //             Observation::get_string_records(
+    //                 client_ref,
+    //                 reservoir.station_id.as_str(),
+    //                 start_date_ref,
+    //                 end_date_ref,
+    //             )
+    //             .await
+    //         }
+    //     }))
+    //     .await;
+    // }
+
     pub async fn get_all_reservoirs_data_by_dates(
         start_date: &NaiveDate,
         end_date: &NaiveDate,
@@ -78,6 +102,24 @@ impl Observation {
         }
         Ok(date_water_btree)
     }
+    pub async fn get_string_records(
+        client: &Client,
+        reservoir_id: &str,
+        start_date: &NaiveDate,
+        end_date: &NaiveDate,
+    ) -> Result<Vec<StringRecord>, ObservationError> {
+        let request_body =
+            Observation::http_request_body(client, reservoir_id, start_date, end_date).await;
+        if let Ok(body) = request_body {
+            if let Ok(records) = Observation::request_to_string_records(body) {
+                Ok(records)
+            } else {
+                Err(ObservationError::HttpResponseParseError)
+            }
+        } else {
+            Err(ObservationError::HttpRequestError)
+        }
+    }
     pub async fn get_observations(
         client: &Client,
         reservoir_id: &str,
@@ -103,21 +145,37 @@ impl Observation {
         end_date: &NaiveDate,
     ) -> Result<String, reqwest::Error> {
         let url = format!("http://cdec.water.ca.gov/dynamicapp/req/CSVDataServlet?Stations={}&SensorNums=15&dur_code=D&Start={}&End={}", reservoir_id, start_date.format(YEAR_FORMAT), end_date.format(YEAR_FORMAT));
-        let response = client.get(url).send().await?;
-        response.text().await
+        let response = client
+        .get(url)
+        .send()
+        .await?;
+        response
+        .text()
+        .await
+    }
+    fn request_to_string_records(request_body: String) -> Result<Vec<StringRecord>, ObservationError> {
+        let records = ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(request_body.as_bytes())
+        .records()
+        .map(|x| x.expect("failed record parse"))
+        .collect::<Vec<StringRecord>>();
+        Ok(records)
     }
     fn request_to_observations(request_body: String) -> Result<Vec<Observation>, ObservationError> {
-        let mut rdr = ReaderBuilder::new()
-            .has_headers(true)
-            .from_reader(request_body.as_bytes());
-        let records = rdr
-            .records()
-            .map(|x| x.expect("failed record parse").try_into())
+        let string_records = Observation::request_to_string_records(request_body);
+        let result = string_records
+            .unwrap()
+            .iter()
+            .map(|x| {
+                let y = x.clone();
+                y.try_into()
+            })
             .collect::<Result<Vec<Observation>, _>>();
-        if let Ok(recs) = records {
-            Ok(recs)
+        if let Ok(records) = result {
+            Ok(records)
         } else {
-            Err(ObservationError::HttpResponseParseError)
+            Err(ObservationError::ObservationCollectionError)
         }
     }
 }
