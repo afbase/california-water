@@ -1,10 +1,10 @@
-use california_water::{observation::{Observation, ObservationError}, reservoir::Reservoir};
-use chrono::{Local, NaiveDate};
-use csv::{StringRecord, Writer};
+use california_water::{observation::Observation, reservoir::Reservoir};
+use chrono::NaiveDate;
 use core::panic;
+use csv::Writer;
 use std::{io::Write, path::Path};
 // use futures::{future::join_all, stream};
-use futures::{stream::{self, StreamExt}, future::join_all};
+use futures::{future::join_all, stream::StreamExt};
 use reqwest::Client;
 
 struct AppBuilder {
@@ -35,7 +35,7 @@ impl App {
             start_date: self.start_date.clone(),
             end_date: self.end_date.clone(),
             filetype: self.filetype.clone(),
-            filename: Some(fname)
+            filename: Some(fname),
         };
         match app_copy.filetype.unwrap() {
             FileType::CSV => {
@@ -45,25 +45,22 @@ impl App {
                 let csv_out = App::run_csv(&app_copy.start_date, &app_copy.end_date.unwrap()).await;
                 let mut fs = std::fs::File::create(p).unwrap();
                 fs.write_all(csv_out.as_bytes());
-            },
+            }
             FileType::STDOUT => {
                 let csv_out = App::run_csv(&app_copy.start_date, &app_copy.end_date.unwrap()).await;
                 std::io::stdout().write_all(csv_out.as_bytes());
-            },
+            }
             FileType::PNG => {
                 // self.build_png().await;
             }
         }
     }
 
-    async fn run_csv(start_date: &NaiveDate,
-        end_date: &NaiveDate) -> String {
+    async fn run_csv(start_date: &NaiveDate, end_date: &NaiveDate) -> String {
         // 1. get observations from date range
         let reservoirs = Reservoir::get_reservoir_vector();
         let client = Client::new();
-        let all_reservoir_observations = join_all(reservoirs
-            .iter()
-            .map(|reservoir| {
+        let all_reservoir_observations = join_all(reservoirs.iter().map(|reservoir| {
             let client_ref = &client;
             let start_date_ref = start_date;
             let end_date_ref = end_date;

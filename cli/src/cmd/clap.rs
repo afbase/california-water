@@ -1,4 +1,4 @@
-use clap::{Arg, Command, Parser};
+use clap::{Arg, Command};
 
 // /// Water Reservoir CLI Tool
 // /// To Generate Data and Graphs
