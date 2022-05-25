@@ -6,21 +6,25 @@ use std::{io::Write, path::Path};
 // use futures::{future::join_all, stream};
 use futures::{future::join_all, stream::StreamExt};
 use reqwest::Client;
+use lzma_rs::lzma_compress;
 
-struct AppBuilder {
+pub struct AppBuilder {
     pub start_date: NaiveDate,
     pub end_date: Option<NaiveDate>,
     pub filetype: Option<FileType>,
     pub filename: Option<String>,
 }
+
 #[derive(Clone)]
-enum FileType {
+pub enum FileType {
     PNG,
     CSV,
     STDOUT,
+    LZMA
 }
+
 #[derive(Clone)]
-struct App {
+pub struct App {
     pub start_date: NaiveDate,
     pub end_date: Option<NaiveDate>,
     pub filetype: Option<FileType>,
@@ -38,6 +42,16 @@ impl App {
             filename: Some(fname),
         };
         match app_copy.filetype.unwrap() {
+            FileType::LZMA => {
+                let k = app_copy.filename.unwrap();
+                let file_name = k.as_str();
+                let p = Path::new(file_name);
+                let csv_out = App::run_csv(&app_copy.start_date, &app_copy.end_date.unwrap()).await;
+                let mut bytes_out = csv_out.as_bytes();
+                let mut fs = std::fs::File::create(p).unwrap();
+                lzma_compress(&mut bytes_out, &mut fs);
+                // fs.write_all(csv_out.as_bytes());
+            }
             FileType::CSV => {
                 let k = app_copy.filename.unwrap();
                 let file_name = k.as_str();
