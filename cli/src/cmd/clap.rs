@@ -1,4 +1,4 @@
-use clap::{Command, Arg, Parser};
+use clap::{Arg, Command, Parser};
 
 // /// Water Reservoir CLI Tool
 // /// To Generate Data and Graphs
@@ -47,12 +47,12 @@ pub fn new_app() -> Command<'static> {
                 .required(true)
                 .takes_value(true),
         )
-        // .arg(
-        //     Arg::new("csv")
-        //         .short("c")
-        //         .long("csv")
-        //         .required(true)
-        //         .takes_value(true)
-        //         .help("csv file of reservoir data"),
-        // )
+    // .arg(
+    //     Arg::new("csv")
+    //         .short("c")
+    //         .long("csv")
+    //         .required(true)
+    //         .takes_value(true)
+    //         .help("csv file of reservoir data"),
+    // )
 }
