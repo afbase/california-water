@@ -22,12 +22,13 @@ pub fn decompress_tar_file_to_csv_string(input: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod test {
-    use super::{decompress_tar_file_to_csv_string, TAR_OBJECT};
+    use super::decompress_tar_file_to_csv_string;
     use sha3::{Digest, Sha3_384};
     use hex_literal::hex;
+    pub static TAR_TEST_OBJECT: &[u8] = include_bytes!("../test-fixtures/output.tar.lzma");
     #[test]
     fn test_decompress_tar_file_to_csv_string() {
-        let output = decompress_tar_file_to_csv_string(TAR_OBJECT);
+        let output = decompress_tar_file_to_csv_string(TAR_TEST_OBJECT);
         let mut hasher = Sha3_384::new();
         let bytes = output.as_slice();
         // let strs = std::str::from_utf8(bytes).unwrap();
