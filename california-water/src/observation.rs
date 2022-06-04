@@ -1,5 +1,3 @@
-#![feature(slice_group_by)]
-#![feature(array_chunks)]
 use crate::{reservoir::Reservoir, compression::{TAR_OBJECT, decompress_tar_file_to_csv_string}};
 use chrono::naive::NaiveDate;
 use core::{result::Result, panic};
@@ -63,9 +61,7 @@ impl Observation {
     //     }))
     //     .await;
     // }
-    pub fn get_all_records_by_dates(
-        start_date: &NaiveDate,
-        end_date: &NaiveDate,
+    pub fn get_all_records(
     ) -> Vec<StringRecord> {
         let bytes_of_csv_string = decompress_tar_file_to_csv_string(TAR_OBJECT);
         csv::ReaderBuilder::new()
@@ -225,7 +221,7 @@ impl Observation {
     /// SHA,D,15,STORAGE,19850104 0000,19850104 0000,1633800,,AF
     /// SHA,D,15,STORAGE,19850105 0000,19850105 0000,1664000,,AF
     /// SHA,D,15,STORAGE,19850106 0000,19850106 0000,1694200,,AF
-    pub fn smooth_observations(vec_records: Vec<Observation>) -> Vec<Observation> {
+    pub fn smooth_observations(vec_records: &mut Vec<Observation>) -> Vec<Observation> {
         let mut output_vector: Vec<Observation> = Vec::with_capacity(vec_records.len());
         let observations_grouped_by_station_id = vec_records
         .as_slice()
@@ -236,9 +232,9 @@ impl Observation {
         // 1. Smoothy smoothy things by reservoir
         // 2. places smoothed observations by reservoir into output_vector
         for group in observations_grouped_by_station_id {
-            // sorting is the key step into the next flow
-            group.sort();
             let mut sorted_group = Vec::from(group);
+            // sorting is the key step into the next flow
+            sorted_group.sort();
             let group_len = group.len();
             let mut markers: Vec<usize> = Vec::new();
             let mut i: usize = 0;
@@ -250,19 +246,16 @@ impl Observation {
             //    element is a value, then mark
             //    (i+1)
             loop {
-                let observation = sorted_group[i];
-                let next_observation = sorted_group[i+1];
-                match observation.value {
-                    DataRecording::Recording(..) => {
-                        if next_observation.value != DataRecording::Recording(..) {
-                            markers.push(i);
-                        }
-                    }
-                    _ => {
-                        if next_observation.value == DataRecording::Recording(..) {
-                            markers.push(i+1);
-                        }
-                    }
+                let observation = &sorted_group[i];
+                let next_observation = &sorted_group[i+1];
+                match (observation.value, next_observation.value) {
+                    (DataRecording::Recording(..), DataRecording::Dash) =>  {markers.push(i);},
+                    (DataRecording::Recording(..), DataRecording::Art) =>  {markers.push(i);},
+                    (DataRecording::Recording(..), DataRecording::Brt) =>  {markers.push(i);},
+                    (DataRecording::Dash, DataRecording::Recording(..)) => {markers.push(i+1);},
+                    (DataRecording::Art, DataRecording::Recording(..)) => {markers.push(i+1);},
+                    (DataRecording::Brt, DataRecording::Recording(..)) => {markers.push(i+1);},
+                    _ => {},
                 }
                 if i == (group_len - 1) {
                     break;
@@ -292,7 +285,6 @@ impl Observation {
                 let a = y1 - y0;
                 let b = x1 - x0;
                 let m = (a as f64) / (b as f64);
-                let values_to_compute = (x1 - x0 - 1) as usize;
                 
                 for x_i in x0..x1 {
                     if x_i == x0 {
@@ -310,12 +302,9 @@ impl Observation {
                 // step 2.1.1
                 let mut is_need_of_filling = true;
                 loop {
-                    match sorted_group[xi].value {
-                        DataRecording::Recording(..) => {
-                            is_need_of_filling = false;
+                    if let DataRecording::Recording(..) = sorted_group[xi].value {
+                        is_need_of_filling = false;
                             break;
-                        },
-                        _ => (),
                     }
                     if xi == group_len {
                         break;
@@ -325,9 +314,12 @@ impl Observation {
             // step 2.1.2
             if is_need_of_filling {
                 let k = sorted_group[markers[markers_len-1]].value;
-                for idx in (markers[markers_len-1] + 1)..group_len {
-                    sorted_group[idx].value = k;
+                for item in sorted_group.iter_mut().take(group_len).skip(markers[markers_len-1] + 1) {
+                    item.value = k;
                 }
+                // for idx in (markers[markers_len-1] + 1)..group_len {
+                //     sorted_group[idx].value = k;
+                // }
             }
         }
         output_vector.append(&mut sorted_group);
@@ -343,8 +335,8 @@ impl Observation {
             a.station_id == b.station_id
         });
         for reservoir_observations in groups {
-            let reservoir_id = reservoir_observations[0].station_id;
-            result.insert(reservoir_id, Vec::from(reservoir_observations));
+            let reservoir_id = &reservoir_observations[0].station_id;
+            result.insert(reservoir_id.clone(), Vec::from(reservoir_observations));
         }
         result
     }

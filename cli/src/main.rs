@@ -1,5 +1,4 @@
 pub mod cmd;
-use clap::App;
 use clap::ArgMatches;
 
 use self::cmd::clap::new_app;
@@ -10,11 +9,11 @@ use chrono::{NaiveDate, Utc};
 #[tokio::main]
 async fn main() -> Result<(), ()> {
     match new_app().get_matches().subcommand() {
-        Some(("input", app)) => {
-            input_run(app).await
+        Some(("decompress", app)) => {
+            decompress_run(app).await
         }
-        Some(("output", app)) => {
-            output_run(app).await
+        Some(("data", app)) => {
+            data_run(app).await
         }
         _ => {
             panic!("needs to use subcommand")
@@ -23,14 +22,12 @@ async fn main() -> Result<(), ()> {
     
 }
 
-async fn input_run(app: &ArgMatches) -> Result<(), ()> {
+async fn decompress_run(app: &ArgMatches) -> Result<(), ()> {
     let filetype = match app.value_of("filetype") {
         Some("csv") => FileType::CSV,
         Some("png") => FileType::PNG,
         Some("stdout") => FileType::STDOUT,
         Some("lzma") => FileType::LZMA,
-        Some("brotli") => FileType::BROTLI,
-        Some("lz4") => FileType::LZ4,
         _ => {panic!("filetype must be set to either csv, png, stdout")}
     };
     let output = match app.value_of("output") {
@@ -51,7 +48,7 @@ async fn input_run(app: &ArgMatches) -> Result<(), ()> {
     Ok(())
 }
 
-async fn output_run(app: &ArgMatches) -> Result<(), ()> {
+async fn data_run(app: &ArgMatches) -> Result<(), ()> {
     let start_date = {
         let start = app.value_of("start_date").expect("Needs a start date");
         NaiveDate::parse_from_str(start, "%Y%m%d").expect("start date format must be YYYMMDD")
@@ -69,8 +66,6 @@ async fn output_run(app: &ArgMatches) -> Result<(), ()> {
         Some("png") => FileType::PNG,
         Some("stdout") => FileType::STDOUT,
         Some("lzma") => FileType::LZMA,
-        Some("brotli") => FileType::BROTLI,
-        Some("lz4") => FileType::LZ4,
         _ => {panic!("filetype must be set to either csv, png, stdout")}
     };
     let output = match app.value_of("output") {

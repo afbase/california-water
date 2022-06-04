@@ -41,7 +41,7 @@ impl Chart {
         canvas: HtmlCanvasElement,
         start_date_js: Date,
         end_date_js: Date,
-    ) -> () {
+    ) {
         // https://rustwasm.github.io/wasm-bindgen/reference/js-promises-and-rust-futures.html
         spawn_local(async {
             // get california water reservoir data

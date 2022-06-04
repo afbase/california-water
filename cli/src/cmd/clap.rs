@@ -1,39 +1,21 @@
-use brotli::enc::command::CommandDistanceContext;
 use clap::{Arg, Command};
 
-// /// Water Reservoir CLI Tool
-// /// To Generate Data and Graphs
-// #[derive(Parser, Debug)]
-// #[clap(author, version, about, long_about=None)]
-// pub(crate) struct Args {
-
-// }
-
 pub fn new_app() -> Command<'static> {
-    let output = output_subcommand();
-    let input = input_subcommand();
+    let data = data_subcommand();
+    let decompress = decompress_subcommand();
     Command::new("Water Reservoir CLI Tool")
         .version("")
         .author("Clinton Bowen <clinton.bowen@gmail.com>")
         .about("Graphs Water Table")
         .subcommand(
-            output
+            data
         )
         .subcommand(
-            input
+            decompress
         )
-        
-    // .arg(
-    //     Arg::new("csv")
-    //         .short("c")
-    //         .long("csv")
-    //         .required(true)
-    //         .takes_value(true)
-    //         .help("csv file of reservoir data"),
-    // )
 }
 
-fn output_subcommand() -> Command<'static> {
+fn data_subcommand() -> Command<'static> {
     Command::new("data")
     .short_flag('o')
     .about("outputs data for water reservoirs")
@@ -73,14 +55,14 @@ fn output_subcommand() -> Command<'static> {
     )
 }
 
-fn input_subcommand() -> Command<'static> {
-    Command::new("input")
+fn decompress_subcommand() -> Command<'static> {
+    Command::new("decompress")
     .short_flag('i')
     .about("takes input data and processes it")
     .arg(
         Arg::new("filetype")
             .short('t')
-            .long("file type: png, csv")
+            .long("file type: lzma")
             .help("png file name output")
             .required(true)
             .takes_value(true),

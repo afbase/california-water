@@ -1,16 +1,12 @@
-use california_water::{compression::BrotliEncoderInitParams,observation::Observation, reservoir::Reservoir};
+use california_water::{observation::Observation, reservoir::Reservoir};
 use chrono::NaiveDate;
 use core::panic;
 use csv::Writer;
 use std::{io::{Write, BufReader}, path::Path};
-// use futures::{future::join_all, stream};
-use futures::{future::join_all, stream::StreamExt};
+use futures::{future::join_all};
 use reqwest::Client;
-use lzma_rs::{lzma_decompress, lzma_compress};
+use lzma_rs::{lzma_decompress};
 use tar::Archive;
-
-use compress::lz4::{encode_block, Encoder};
-
 pub struct AppBuilder {
     pub start_date: NaiveDate,
     pub end_date: Option<NaiveDate>,
@@ -25,8 +21,6 @@ pub enum FileType {
     CSV,
     STDOUT,
     LZMA,
-    LZ4,
-    BROTLI
 }
 
 #[derive(Clone)]
@@ -44,52 +38,17 @@ impl App {
          let fname = String::from(self.filename.unwrap().as_str());
          let input_fname = String::from(self.input_filename.unwrap().as_str());
          let app_copy = App {
-             start_date: self.start_date.clone(),
-             end_date: self.end_date.clone(),
-             filetype: self.filetype.clone(),
+             start_date: self.start_date,
+             end_date: self.end_date,
+             filetype: self.filetype,
              filename: Some(fname),
              input_filename: Some(input_fname),
          };
          match app_copy.filetype.unwrap() {
-             FileType::LZ4 => {
-                //  let k = app_copy.filename.unwrap();
-                //  let file_name = k.as_str();
-                //  let p = Path::new(file_name);
-                //  let csv_out = App::run_csv(&app_copy.start_date, &app_copy.end_date.unwrap()).await;
-                //  let bytes_out = csv_out.as_bytes();
-                //  let bytes_out_len = bytes_out.len();
-                //  let mut compressed_bytes: Vec<u8> = Vec::with_capacity(bytes_out_len);
-                //  let lz4_bytes_processed = encode_block(bytes_out, &mut compressed_bytes);
-                //  if lz4_bytes_processed != bytes_out_len {
-                //      panic!("bytes not processed");
-                //  }
-                //  let mut fs = std::fs::File::create(p).unwrap();
-                //  fs.write_all(compressed_bytes.as_ref());
-             }
-             FileType::BROTLI => {
-                //  let k = app_copy.filename.unwrap();
-                //  let file_name = k.as_str();
-                //  let p = Path::new(file_name);
-                //  let csv_out = App::run_csv(&app_copy.start_date, &app_copy.end_date.unwrap()).await;
-                //  let bytes_out = csv_out.as_bytes();
-                 
-                //  let mut fs = std::fs::File::create(p).unwrap();
-                //  let params = BrotliEncoderInitParams(bytes_out.len());
-                //  // modify params to fit the application needs
-                //  let mut writer = brotli::CompressorWriter::with_params(&mut fs, 4096 /* buffer size */,
-                //                                          &params);
-                //  if let Ok(check) = writer.write(bytes_out) {
-                //      if check != bytes_out.len() {
-                //          panic!("Failed to completely brotli compress csv to file")
-                //      }
-                //  } else {
-                //      panic!("Failed to brotli compress csv to file");
-                //  };
-             }
              FileType::LZMA => {
                 let input_filename = app_copy.input_filename.unwrap();
                 let output_filename = app_copy.filename.unwrap();
-                let mut inp_fs = std::fs::File::open(input_filename).unwrap();
+                let inp_fs = std::fs::File::open(input_filename).unwrap();
                 let mut reader = BufReader::new(inp_fs);
                 let mut input_bytes: Vec<u8> = Vec::new();
                 if lzma_decompress(&mut reader, &mut input_bytes).is_err() {
@@ -99,14 +58,6 @@ impl App {
                 if arch.unpack(output_filename).is_err() {
                     panic!("tar unpacking failed");
                 }
-                //  let k = app_copy.filename.unwrap();
-                //  let file_name = k.as_str();
-                //  let p = Path::new(file_name);
-                //  let csv_out = App::run_csv(&app_copy.start_date, &app_copy.end_date.unwrap()).await;
-                //  let mut bytes_out = csv_out.as_bytes();
-                //  let mut fs = std::fs::File::create(p).unwrap();
-                //  lzma_compress(&mut bytes_out, &mut fs);
-                 // fs.write_all(csv_out.as_bytes());
              }
              _ => {
                  panic!("needs to be a compression type");
@@ -117,72 +68,34 @@ impl App {
         // 2. if csv or stdout run csv
         let fname = String::from(self.filename.unwrap().as_str());
         let app_copy = App {
-            start_date: self.start_date.clone(),
-            end_date: self.end_date.clone(),
-            filetype: self.filetype.clone(),
+            start_date: self.start_date,
+            end_date: self.end_date,
+            filetype: self.filetype,
             filename: Some(fname),
             input_filename: None,
         };
         match app_copy.filetype.unwrap() {
-            FileType::LZ4 => {
-                let k = app_copy.filename.unwrap();
-                let file_name = k.as_str();
-                let p = Path::new(file_name);
-                let csv_out = App::run_csv(&app_copy.start_date, &app_copy.end_date.unwrap()).await;
-                let bytes_out = csv_out.as_bytes();
-                let bytes_out_len = bytes_out.len();
-                let mut compressed_bytes: Vec<u8> = Vec::with_capacity(bytes_out_len);
-                let lz4_bytes_processed = encode_block(bytes_out, &mut compressed_bytes);
-                if lz4_bytes_processed != bytes_out_len {
-                    panic!("bytes not processed");
-                }
-                let mut fs = std::fs::File::create(p).unwrap();
-                fs.write_all(compressed_bytes.as_ref());
-            }
-            FileType::BROTLI => {
-                let k = app_copy.filename.unwrap();
-                let file_name = k.as_str();
-                let p = Path::new(file_name);
-                let csv_out = App::run_csv(&app_copy.start_date, &app_copy.end_date.unwrap()).await;
-                let bytes_out = csv_out.as_bytes();
-                
-                let mut fs = std::fs::File::create(p).unwrap();
-                let params = BrotliEncoderInitParams(bytes_out.len());
-                // modify params to fit the application needs
-                let mut writer = brotli::CompressorWriter::with_params(&mut fs, 4096 /* buffer size */,
-                                                        &params);
-                if let Ok(check) = writer.write(bytes_out) {
-                    if check != bytes_out.len() {
-                        panic!("Failed to completely brotli compress csv to file")
-                    }
-                } else {
-                    panic!("Failed to brotli compress csv to file");
-                };
-            }
-            FileType::LZMA => {
-                let k = app_copy.filename.unwrap();
-                let file_name = k.as_str();
-                let p = Path::new(file_name);
-                let csv_out = App::run_csv(&app_copy.start_date, &app_copy.end_date.unwrap()).await;
-                let mut bytes_out = csv_out.as_bytes();
-                let mut fs = std::fs::File::create(p).unwrap();
-                lzma_compress(&mut bytes_out, &mut fs);
-                // fs.write_all(csv_out.as_bytes());
-            }
             FileType::CSV => {
                 let k = app_copy.filename.unwrap();
                 let file_name = k.as_str();
                 let p = Path::new(file_name);
                 let csv_out = App::run_csv(&app_copy.start_date, &app_copy.end_date.unwrap()).await;
                 let mut fs = std::fs::File::create(p).unwrap();
-                fs.write_all(csv_out.as_bytes());
+                if fs.write_all(csv_out.as_bytes()).is_err() {
+                    panic!("writing csv file failed");
+                }
             }
             FileType::STDOUT => {
                 let csv_out = App::run_csv(&app_copy.start_date, &app_copy.end_date.unwrap()).await;
-                std::io::stdout().write_all(csv_out.as_bytes());
+                if std::io::stdout().write_all(csv_out.as_bytes()).is_err() {
+                    panic!("stdout failed");
+                }
             }
             FileType::PNG => {
                 // self.build_png().await;
+            }
+            _ => {
+                panic!("error: needs to be either csv, stdout, or png");
             }
         }
     }
@@ -211,7 +124,9 @@ impl App {
             let records = reservoir_records.unwrap();
             // writer.write_byte_record(records.iter());
             for record in records {
-                writer.write_byte_record(record.as_byte_record());
+                if writer.write_byte_record(record.as_byte_record()).is_err() {
+                    panic!("Error: writiing record failed");
+                }
             }
         }
         String::from_utf8(writer.into_inner().unwrap()).unwrap()
