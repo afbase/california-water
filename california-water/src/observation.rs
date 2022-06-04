@@ -1,10 +1,12 @@
-use crate::reservoir::Reservoir;
+#![feature(slice_group_by)]
+#![feature(array_chunks)]
+use crate::{reservoir::Reservoir, compression::{TAR_OBJECT, decompress_tar_file_to_csv_string}};
 use chrono::naive::NaiveDate;
-use core::result::Result;
+use core::{result::Result, panic};
 use csv::{ReaderBuilder, StringRecord};
 use futures::future::join_all;
 use reqwest::Client;
-use std::collections::BTreeMap;
+use std::{str, collections::{BTreeMap, HashMap}, cmp::Ordering};
 const DATE_FORMAT: &str = "%Y%m%d %H%M";
 const YEAR_FORMAT: &str = "%Y-%m-%d";
 const CSV_ROW_LENGTH: usize = 9;
@@ -29,7 +31,7 @@ pub enum DataRecording {
     Recording(u32),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone)]
 pub struct Observation {
     pub station_id: String,
     pub date_observation: NaiveDate,
@@ -61,6 +63,18 @@ impl Observation {
     //     }))
     //     .await;
     // }
+    pub fn get_all_records_by_dates(
+        start_date: &NaiveDate,
+        end_date: &NaiveDate,
+    ) -> Vec<StringRecord> {
+        let bytes_of_csv_string = decompress_tar_file_to_csv_string(TAR_OBJECT);
+        csv::ReaderBuilder::new()
+        .has_headers(false)
+        .from_reader(bytes_of_csv_string.as_slice())
+        .records()
+        .map(|x| x.expect("failed record parse"))
+        .collect::<Vec<StringRecord>>()
+    }
 
     pub async fn get_all_reservoirs_data_by_dates(
         start_date: &NaiveDate,
@@ -102,24 +116,8 @@ impl Observation {
         }
         Ok(date_water_btree)
     }
-    pub async fn get_string_records(
-        client: &Client,
-        reservoir_id: &str,
-        start_date: &NaiveDate,
-        end_date: &NaiveDate,
-    ) -> Result<Vec<StringRecord>, ObservationError> {
-        let request_body =
-            Observation::http_request_body(client, reservoir_id, start_date, end_date).await;
-        if let Ok(body) = request_body {
-            if let Ok(records) = Observation::request_to_string_records(body) {
-                Ok(records)
-            } else {
-                Err(ObservationError::HttpResponseParseError)
-            }
-        } else {
-            Err(ObservationError::HttpRequestError)
-        }
-    }
+
+    
     pub async fn get_observations(
         client: &Client,
         reservoir_id: &str,
@@ -131,6 +129,26 @@ impl Observation {
         if let Ok(body) = request_body {
             if let Ok(observations) = Observation::request_to_observations(body) {
                 Ok(observations)
+            } else {
+                Err(ObservationError::HttpResponseParseError)
+            }
+        } else {
+            Err(ObservationError::HttpRequestError)
+        }
+    }
+
+
+    pub async fn get_string_records(
+        client: &Client,
+        reservoir_id: &str,
+        start_date: &NaiveDate,
+        end_date: &NaiveDate,
+    ) -> Result<Vec<StringRecord>, ObservationError> {
+        let request_body =
+            Observation::http_request_body(client, reservoir_id, start_date, end_date).await;
+        if let Ok(body) = request_body {
+            if let Ok(records) = Observation::request_to_string_records(body) {
+                Ok(records)
             } else {
                 Err(ObservationError::HttpResponseParseError)
             }
@@ -153,14 +171,15 @@ impl Observation {
         .text()
         .await
     }
-    fn request_to_string_records(request_body: String) -> Result<Vec<StringRecord>, ObservationError> {
-        let records = ReaderBuilder::new()
-        .has_headers(true)
-        .from_reader(request_body.as_bytes())
-        .records()
-        .map(|x| x.expect("failed record parse"))
-        .collect::<Vec<StringRecord>>();
-        Ok(records)
+    pub fn records_to_observations(vec_records: Vec<StringRecord>) -> Vec<Observation> {
+        vec_records
+        .iter()
+        .map(|x| {
+            let y = x.clone();
+            y.try_into()
+        })
+        .collect::<Result<Vec<Observation>, _>>()
+        .unwrap()
     }
     fn request_to_observations(request_body: String) -> Result<Vec<Observation>, ObservationError> {
         let string_records = Observation::request_to_string_records(request_body);
@@ -177,6 +196,157 @@ impl Observation {
         } else {
             Err(ObservationError::ObservationCollectionError)
         }
+    }
+    fn request_to_string_records(request_body: String) -> Result<Vec<StringRecord>, ObservationError> {
+        let records = ReaderBuilder::new()
+        .has_headers(true)
+        .from_reader(request_body.as_bytes())
+        .records()
+        .map(|x| x.expect("failed record parse"))
+        .collect::<Vec<StringRecord>>();
+        Ok(records)
+    }
+    /// Suppose we have gaps in our observations, e.g.:
+    /// 
+    /// SHA,D,15,STORAGE,19850101 0000,19850101 0000,1543200,,AF
+    /// SHA,D,15,STORAGE,19850102 0000,19850102 0000,---,,AF
+    /// SHA,D,15,STORAGE,19850103 0000,19850103 0000,---,,AF
+    /// SHA,D,15,STORAGE,19850104 0000,19850104 0000,---,,AF
+    /// SHA,D,15,STORAGE,19850105 0000,19850105 0000,---,,AF
+    /// SHA,D,15,STORAGE,19850106 0000,19850106 0000,1694200,,AF
+    /// 
+    /// `smooth_observations` does a linear interpolation of the 
+    /// missing observations.
+    /// 
+    /// From the example above, it becomes: 
+    /// SHA,D,15,STORAGE,19850101 0000,19850101 0000,1543200,,AF
+    /// SHA,D,15,STORAGE,19850102 0000,19850102 0000,1573400,,AF
+    /// SHA,D,15,STORAGE,19850103 0000,19850103 0000,1603600,,AF
+    /// SHA,D,15,STORAGE,19850104 0000,19850104 0000,1633800,,AF
+    /// SHA,D,15,STORAGE,19850105 0000,19850105 0000,1664000,,AF
+    /// SHA,D,15,STORAGE,19850106 0000,19850106 0000,1694200,,AF
+    pub fn smooth_observations(vec_records: Vec<Observation>) -> Vec<Observation> {
+        let mut output_vector: Vec<Observation> = Vec::with_capacity(vec_records.len());
+        let observations_grouped_by_station_id = vec_records
+        .as_slice()
+        .group_by(|a,b| {
+            a.station_id == b.station_id
+        });
+        // this for loop does two things:
+        // 1. Smoothy smoothy things by reservoir
+        // 2. places smoothed observations by reservoir into output_vector
+        for group in observations_grouped_by_station_id {
+            // sorting is the key step into the next flow
+            group.sort();
+            let mut sorted_group = Vec::from(group);
+            let group_len = group.len();
+            let mut markers: Vec<usize> = Vec::new();
+            let mut i: usize = 0;
+            // for the ith and (i+1)th element,
+            // 1. if ith element is a value and 
+            //    (i+1)th is not, mark i
+            // 2. if not then ith element is 
+            //    some error.  if (i+1)th 
+            //    element is a value, then mark
+            //    (i+1)
+            loop {
+                let observation = sorted_group[i];
+                let next_observation = sorted_group[i+1];
+                match observation.value {
+                    DataRecording::Recording(..) => {
+                        if next_observation.value != DataRecording::Recording(..) {
+                            markers.push(i);
+                        }
+                    }
+                    _ => {
+                        if next_observation.value == DataRecording::Recording(..) {
+                            markers.push(i+1);
+                        }
+                    }
+                }
+                if i == (group_len - 1) {
+                    break;
+                }
+                i += 1; // do not i+2; still need to loop one-by-one
+            }
+            // for each array chunk pair[1]:
+            // 1. do linear interpolation
+            // 2. if markers is odd length, then
+            // 2.1 from markers[len-1] to last observation:
+            // 2.1.1 check there are no recordings, if so,
+            // 2.1.2 set all recordings from markers[len-1]+1 to last observation
+            //       to the value observation[markers[len-1]]
+            // [1] - https://play.rust-lang.org/?version=nightly&mode=debug&edition=2018&gist=75bb6330866854040404a619c09c04f7
+            let markers_slice = markers.as_slice();
+            for [x0usize, x1usize] in markers_slice.array_chunks::<2>(){
+                let x0 = *x0usize as u32;
+                let x1 = *x1usize as u32;
+                let y0 = match sorted_group[*x0usize].value {
+                    DataRecording::Recording(k) => k,
+                    _ => panic!("failed to select value")
+                };
+                let y1 =  match sorted_group[*x1usize].value {
+                    DataRecording::Recording(k) => k,
+                    _ => panic!("failed to select value")
+                };
+                let a = y1 - y0;
+                let b = x1 - x0;
+                let m = (a as f64) / (b as f64);
+                let values_to_compute = (x1 - x0 - 1) as usize;
+                
+                for x_i in x0..x1 {
+                    if x_i == x0 {
+                        continue;
+                    }
+                    let y_i = (m * ((x_i - x0) as f64) + (y1 as f64)).round() as u32;
+                    let x_i_as_usize = x_i as usize;
+                    sorted_group[x_i_as_usize].value = DataRecording::Recording(y_i);
+                }
+            } // step 1
+            // step 2
+            let markers_len = markers.len();
+            if markers_len % 2 == 1 {
+                let mut xi = markers[markers_len - 1];
+                // step 2.1.1
+                let mut is_need_of_filling = true;
+                loop {
+                    match sorted_group[xi].value {
+                        DataRecording::Recording(..) => {
+                            is_need_of_filling = false;
+                            break;
+                        },
+                        _ => (),
+                    }
+                    if xi == group_len {
+                        break;
+                    }
+                    xi += 1;
+                }
+            // step 2.1.2
+            if is_need_of_filling {
+                let k = sorted_group[markers[markers_len-1]].value;
+                for idx in (markers[markers_len-1] + 1)..group_len {
+                    sorted_group[idx].value = k;
+                }
+            }
+        }
+        output_vector.append(&mut sorted_group);
+        }
+        output_vector
+    }
+
+    pub fn vector_to_hashmap(vec_observations: Vec<Observation>) -> HashMap<String, Vec<Observation>> {
+        let mut result: HashMap<String, Vec<Observation>> = HashMap::new();
+        let groups = vec_observations
+        .as_slice()
+        .group_by(|a,b| {
+            a.station_id == b.station_id
+        });
+        for reservoir_observations in groups {
+            let reservoir_id = reservoir_observations[0].station_id;
+            result.insert(reservoir_id, Vec::from(reservoir_observations));
+        }
+        result
     }
 }
 
@@ -213,6 +383,25 @@ impl TryFrom<StringRecord> for Observation {
             });
         }
         Err(())
+    }
+}
+
+impl Ord for Observation {
+    fn cmp(&self, other: &Self) -> Ordering {
+        self.date_observation.cmp(&other.date_observation)
+    }
+}
+impl Eq for Observation {}
+
+impl PartialEq for Observation {
+    fn eq(&self, other: &Self) -> bool {
+        self.date_observation == other.date_observation && self.station_id == other.station_id
+    }
+}
+
+impl PartialOrd for Observation {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
     }
 }
 
