@@ -1,25 +1,20 @@
 pub mod cmd;
 use clap::ArgMatches;
 
-use self::cmd::clap::new_app;
 use self::cmd::app::AppBuilder;
 use self::cmd::app::FileType;
+use self::cmd::clap::new_app;
 use chrono::{NaiveDate, Utc};
 
 #[tokio::main]
 async fn main() -> Result<(), ()> {
     match new_app().get_matches().subcommand() {
-        Some(("decompress", app)) => {
-            decompress_run(app).await
-        }
-        Some(("data", app)) => {
-            data_run(app).await
-        }
+        Some(("decompress", app)) => decompress_run(app).await,
+        Some(("data", app)) => data_run(app).await,
         _ => {
             panic!("needs to use subcommand")
         }
     }
-    
 }
 
 async fn decompress_run(app: &ArgMatches) -> Result<(), ()> {
@@ -28,22 +23,24 @@ async fn decompress_run(app: &ArgMatches) -> Result<(), ()> {
         Some("png") => FileType::PNG,
         Some("stdout") => FileType::STDOUT,
         Some("lzma") => FileType::LZMA,
-        _ => {panic!("filetype must be set to either csv, png, stdout")}
+        _ => {
+            panic!("filetype must be set to either csv, png, stdout")
+        }
     };
     let output = match app.value_of("output") {
         Some(value) => String::from(value),
-        _ => String::new()
+        _ => String::new(),
     };
     let input = match app.value_of("input") {
         Some(value) => String::from(value),
-        _ => String::new()
+        _ => String::new(),
     };
     let now = Utc::now().date().naive_local();
     let app = AppBuilder::new(now)
-    .filetype(filetype)
-    .filename(output)
-    .input_filename(input)
-    .build_input_run();
+        .filetype(filetype)
+        .filename(output)
+        .input_filename(input)
+        .build_input_run();
     app.run_decompress().await;
     Ok(())
 }
@@ -66,17 +63,19 @@ async fn data_run(app: &ArgMatches) -> Result<(), ()> {
         Some("png") => FileType::PNG,
         Some("stdout") => FileType::STDOUT,
         Some("lzma") => FileType::LZMA,
-        _ => {panic!("filetype must be set to either csv, png, stdout")}
+        _ => {
+            panic!("filetype must be set to either csv, png, stdout")
+        }
     };
     let output = match app.value_of("output") {
         Some(value) => String::from(value),
-        _ => String::new()
+        _ => String::new(),
     };
     let app = AppBuilder::new(start_date)
-    .end_date(end_date)
-    .filetype(filetype)
-    .filename(output)
-    .build();
+        .end_date(end_date)
+        .filetype(filetype)
+        .filename(output)
+        .build();
     app.run().await;
     Ok(())
 }

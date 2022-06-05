@@ -37,11 +37,7 @@ struct ReservoirObservationChart {
 #[wasm_bindgen]
 impl Chart {
     // https://github.com/rustwasm/wasm-bindgen/issues/1858
-    pub fn build_chart(
-        canvas: HtmlCanvasElement,
-        start_date_js: Date,
-        end_date_js: Date,
-    ) {
+    pub fn build_chart(canvas: HtmlCanvasElement, start_date_js: Date, end_date_js: Date) {
         // https://rustwasm.github.io/wasm-bindgen/reference/js-promises-and-rust-futures.html
         spawn_local(async {
             // get california water reservoir data
@@ -49,8 +45,9 @@ impl Chart {
             let end_wrapper = DateWrapper::new(end_date_js);
             let start_date = NaiveDate::try_from(start_wrapper).unwrap();
             let end_date = NaiveDate::try_from(end_wrapper).unwrap();
-            if let Ok(observations) = Observation::get_all_reservoirs_data_by_dates(&start_date, &end_date)
-            .await {
+            if let Ok(observations) =
+                Observation::get_all_reservoirs_data_by_dates(&start_date, &end_date).await
+            {
                 // reservoir all the things
                 let reservoir_chart = ReservoirObservationChart {
                     data_btree: observations,

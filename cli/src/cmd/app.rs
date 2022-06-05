@@ -2,10 +2,13 @@ use california_water::{observation::Observation, reservoir::Reservoir};
 use chrono::NaiveDate;
 use core::panic;
 use csv::Writer;
-use std::{io::{Write, BufReader}, path::Path};
-use futures::{future::join_all};
+use futures::future::join_all;
+use lzma_rs::lzma_decompress;
 use reqwest::Client;
-use lzma_rs::{lzma_decompress};
+use std::{
+    io::{BufReader, Write},
+    path::Path,
+};
 use tar::Archive;
 pub struct AppBuilder {
     pub start_date: NaiveDate,
@@ -34,18 +37,18 @@ pub struct App {
 
 impl App {
     pub async fn run_decompress(self) {
-         // 2. if csv or stdout run csv
-         let fname = String::from(self.filename.unwrap().as_str());
-         let input_fname = String::from(self.input_filename.unwrap().as_str());
-         let app_copy = App {
-             start_date: self.start_date,
-             end_date: self.end_date,
-             filetype: self.filetype,
-             filename: Some(fname),
-             input_filename: Some(input_fname),
-         };
-         match app_copy.filetype.unwrap() {
-             FileType::LZMA => {
+        // 2. if csv or stdout run csv
+        let fname = String::from(self.filename.unwrap().as_str());
+        let input_fname = String::from(self.input_filename.unwrap().as_str());
+        let app_copy = App {
+            start_date: self.start_date,
+            end_date: self.end_date,
+            filetype: self.filetype,
+            filename: Some(fname),
+            input_filename: Some(input_fname),
+        };
+        match app_copy.filetype.unwrap() {
+            FileType::LZMA => {
                 let input_filename = app_copy.input_filename.unwrap();
                 let output_filename = app_copy.filename.unwrap();
                 let inp_fs = std::fs::File::open(input_filename).unwrap();
@@ -58,11 +61,11 @@ impl App {
                 if arch.unpack(output_filename).is_err() {
                     panic!("tar unpacking failed");
                 }
-             }
-             _ => {
-                 panic!("needs to be a compression type");
-             }
-         }
+            }
+            _ => {
+                panic!("needs to be a compression type");
+            }
+        }
     }
     pub async fn run(self) {
         // 2. if csv or stdout run csv

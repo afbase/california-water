@@ -1,7 +1,6 @@
-
-use std::io::{Read, BufReader};
-use tar::Archive;
 use lzma_rs::xz_decompress;
+use std::io::{BufReader, Read};
+use tar::Archive;
 pub static TAR_OBJECT: &[u8] = include_bytes!("../obj/output.tar.lzma");
 
 pub fn decompress_tar_file_to_csv_string(input: &[u8]) -> Vec<u8> {
@@ -10,7 +9,10 @@ pub fn decompress_tar_file_to_csv_string(input: &[u8]) -> Vec<u8> {
     xz_decompress(&mut tar_object_buffer, &mut decompress_output).unwrap();
     // read decompress_output with archive
     let mut tar_file_from_decompress_output = Archive::new(decompress_output.as_slice());
-    let mut tar_file_enumerator = tar_file_from_decompress_output.entries().unwrap().enumerate();
+    let mut tar_file_enumerator = tar_file_from_decompress_output
+        .entries()
+        .unwrap()
+        .enumerate();
     let mut buf: Vec<u8> = Vec::new();
     if let Some((_i, csv_file_result)) = tar_file_enumerator.next() {
         let mut csv_file = csv_file_result.unwrap();
@@ -24,8 +26,8 @@ pub fn decompress_tar_file_to_csv_string(input: &[u8]) -> Vec<u8> {
 #[cfg(test)]
 mod test {
     use super::decompress_tar_file_to_csv_string;
-    use sha3::{Digest, Sha3_384};
     use hex_literal::hex;
+    use sha3::{Digest, Sha3_384};
     pub static TAR_TEST_OBJECT: &[u8] = include_bytes!("../test-fixtures/output.tar.lzma");
     #[test]
     fn test_decompress_tar_file_to_csv_string() {
