@@ -21,6 +21,7 @@ pub enum ObservationError {
     HttpRequestError,
     HttpResponseParseError,
     ObservationCollectionError,
+    FunctionFail,
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -126,37 +127,54 @@ impl Observation {
         start_date: &NaiveDate,
         end_date: &NaiveDate,
     ) -> Result<Vec<Observation>, ObservationError> {
+        let mut result: Result<Vec<Observation>, ObservationError> = Err(ObservationError::FunctionFail);
         let mut observations: Vec<Observation> = Vec::new();
         let request_body_daily =
             Observation::http_request_body(client, reservoir_id, start_date, end_date, "D").await;
         let request_body_monthly =
             Observation::http_request_body(client, reservoir_id, start_date, end_date, "M").await;
         if let Ok(body) = request_body_daily {
-            if let Ok(obs) = Observation::request_to_observations(body) {
-                observations.append(obs.as_mut());
+            if let Ok(mut daily_observations) = Observation::request_to_observations(body) {
+                observations.append(&mut daily_observations);
             } else {
-                Err(ObservationError::HttpResponseParseError)
+                result = Err(ObservationError::HttpResponseParseError);
             }
-        } else {23  
-            Err(ObservationError::HttpRequestError)
+        } else {
+            result = Err(ObservationError::HttpRequestError);
         }
         // collect monthly data and then
         // 1. linearly interpolate to daily observations
         // 2. insert into observations if the date does not exist
         if let Ok(body) = request_body_monthly {
-            if let Ok(obs) = Observation::request_to_observations(body) {
+            if let Ok(mut monthly_observations) = Observation::request_to_observations(body) {
+                let mut observations_to_add_from_monthly_interpolations: Vec<Observation> = Vec::new();
                 // interpolate
-                let daily_observations_from_monthly_observations_interpolated = linearly_interpolate_monthly_observations(obs);
+                let daily_observations_from_monthly_observations_interpolated: Vec<Observation> = Observation::linearly_interpolate_monthly_observations(&mut monthly_observations);
+                for interpolated_observation in daily_observations_from_monthly_observations_interpolated {
+                    let has_daily_value_is_recorded = observations
+                    .iter()
+                    .any(|observation| {
+                        let has_observation = interpolated_observation.date_observation == observation.date_observation;
+                        let is_recording = matches!(observation.value, DataRecording::Recording(..));
+                        has_observation && is_recording
+                    });
+                    if !has_daily_value_is_recorded {
+                        observations_to_add_from_monthly_interpolations.push(interpolated_observation);
+                    }
+                }
+                observations.append(&mut observations_to_add_from_monthly_interpolations);          
             } else {
-                Err(ObservationError::HttpResponseParseError)
+                result = Err(ObservationError::HttpResponseParseError);
             }
         } else {
-            Err(ObservationError::HttpRequestError)
+            result = Err(ObservationError::HttpRequestError);
         }
+        result = Ok(observations);
+        result
     }
 
     fn linearly_interpolate_monthly_observations(
-        monthly_observations: Vec<Observation>,
+        monthly_observations: &mut Vec<Observation>,
     ) -> Vec<Observation> {
         monthly_observations.sort();
         let mut output_vector: Vec<Observation> = Vec::new();
@@ -178,7 +196,7 @@ impl Observation {
                 (DataRecording::Recording(..), DataRecording::Dash) => {
                     markers.push(i);
                     let monthly_recording_as_daily = Observation {
-                        station_id: observation.station_id,
+                        station_id: observation.station_id.clone(),
                         date_observation: observation.date_observation,
                         date_recording: observation.date_recording,
                         value: observation.value,
@@ -189,7 +207,7 @@ impl Observation {
                 (DataRecording::Recording(..), DataRecording::Art) => {
                     markers.push(i);
                     let monthly_recording_as_daily = Observation {
-                        station_id: observation.station_id,
+                        station_id: observation.station_id.clone(),
                         date_observation: observation.date_observation,
                         date_recording: observation.date_recording,
                         value: observation.value,
@@ -200,7 +218,7 @@ impl Observation {
                 (DataRecording::Recording(..), DataRecording::Brt) => {
                     markers.push(i);
                     let monthly_recording_as_daily = Observation {
-                        station_id: observation.station_id,
+                        station_id: observation.station_id.clone(),
                         date_observation: observation.date_observation,
                         date_recording: observation.date_recording,
                         value: observation.value,
@@ -211,7 +229,7 @@ impl Observation {
                 (DataRecording::Dash, DataRecording::Recording(..)) => {
                     markers.push(i + 1);
                     let monthly_recording_as_daily = Observation {
-                        station_id: next_observation.station_id,
+                        station_id: next_observation.station_id.clone(),
                         date_observation: next_observation.date_observation,
                         date_recording: next_observation.date_recording,
                         value: next_observation.value,
@@ -222,7 +240,7 @@ impl Observation {
                 (DataRecording::Art, DataRecording::Recording(..)) => {
                     markers.push(i + 1);
                     let monthly_recording_as_daily = Observation {
-                        station_id: next_observation.station_id,
+                        station_id: next_observation.station_id.clone(),
                         date_observation: next_observation.date_observation,
                         date_recording: next_observation.date_recording,
                         value: next_observation.value,
@@ -233,7 +251,7 @@ impl Observation {
                 (DataRecording::Brt, DataRecording::Recording(..)) => {
                     markers.push(i + 1);
                     let monthly_recording_as_daily = Observation {
-                        station_id: next_observation.station_id,
+                        station_id: next_observation.station_id.clone(),
                         date_observation: next_observation.date_observation,
                         date_recording: next_observation.date_recording,
                         value: next_observation.value,
@@ -257,7 +275,6 @@ impl Observation {
         //       to the value observation[markers[len-1]]
         // [1] - https://play.rust-lang.org/?version=nightly&mode=debug&edition=2018&gist=75bb6330866854040404a619c09c04f7
         let markers_slice = markers.as_slice();
-        let mut daily_vector_between_marked_observations: Vec<Observation> = Vec::new();
         for [x0usize, x1usize] in markers_slice.array_chunks::<2>() {
             let x0 = *x0usize as u32;
             let x1 = *x1usize as u32;
@@ -282,8 +299,7 @@ impl Observation {
                 let idx_duration = chrono::Duration::days(idx as i64);
                 let date_observation = monthly_observations[*x1usize].date_observation + idx_duration;
                 let date_recording = monthly_observations[*x1usize].date_recording + idx_duration;
-                let station_id = monthly_observations[*x1usize].station_id;
-                let x_i_as_usize = x_i as usize;
+                let station_id = monthly_observations[*x1usize].station_id.clone();
                 let ith_day_observation = Observation {
                     duration: Duration::Daily,
                     value: DataRecording::Recording(y_i),
@@ -315,7 +331,7 @@ impl Observation {
         end_date: &NaiveDate,
     ) -> Result<Vec<StringRecord>, ObservationError> {
         let request_body =
-            Observation::http_request_body(client, reservoir_id, start_date, end_date).await;
+            Observation::http_request_body(client, reservoir_id, start_date, end_date, "D").await;
         if let Ok(body) = request_body {
             if let Ok(records) = Observation::request_to_string_records(body) {
                 Ok(records)
@@ -331,9 +347,9 @@ impl Observation {
         reservoir_id: &str,
         start_date: &NaiveDate,
         end_date: &NaiveDate,
-        rate: &str,
+        duration: &str,
     ) -> Result<String, reqwest::Error> {
-        let url = format!("http://cdec.water.ca.gov/dynamicapp/req/CSVDataServlet?Stations={}&SensorNums=15&dur_code={}}&Start={}&End={}", reservoir_id, rate, start_date.format(YEAR_FORMAT), end_date.format(YEAR_FORMAT));
+        let url = format!("http://cdec.water.ca.gov/dynamicapp/req/CSVDataServlet?Stations={}&SensorNums=15&dur_code={}&Start={}&End={}", reservoir_id, duration, start_date.format(YEAR_FORMAT), end_date.format(YEAR_FORMAT));
         let response = client.get(url).send().await?;
         response.text().await
     }
@@ -552,7 +568,7 @@ impl TryFrom<StringRecord> for Observation {
             },
             // _ => Err(()),
         };
-        if duration.is_ok() {
+        if let Ok(..) = duration {
             return Ok(Observation {
                 station_id: value.get(0).unwrap().to_string(),
                 date_recording: date_recording_value.unwrap(),
