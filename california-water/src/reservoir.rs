@@ -80,6 +80,6 @@ mod tests {
     #[test]
     fn test_reservoir_vector() {
         let reservoirs: Vec<Reservoir> = Reservoir::get_reservoir_vector();
-        assert_eq!(reservoirs.len(), 223);
+        assert_eq!(reservoirs.len(), 218);
     }
 }
