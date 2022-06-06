@@ -2,9 +2,9 @@ use crate::{
     compression::{decompress_tar_file_to_csv_string, TAR_OBJECT},
     reservoir::Reservoir,
 };
-use chrono::naive::NaiveDate;
+use chrono::{format::format, naive::NaiveDate, Datelike};
 use core::{panic, result::Result};
-use csv::{ReaderBuilder, StringRecord};
+use csv::{ReaderBuilder, StringRecord, ByteRecord};
 use futures::future::join_all;
 use reqwest::Client;
 use std::{
@@ -354,17 +354,21 @@ impl Observation {
         start_date: &NaiveDate,
         end_date: &NaiveDate,
     ) -> Result<Vec<StringRecord>, ObservationError> {
-        let request_body =
-            Observation::http_request_body(client, reservoir_id, start_date, end_date, "D").await;
-        if let Ok(body) = request_body {
-            if let Ok(records) = Observation::request_to_string_records(body) {
-                Ok(records)
-            } else {
-                Err(ObservationError::HttpResponseParseError)
-            }
-        } else {
-            Err(ObservationError::HttpRequestError)
+        match Observation::get_observations(client, reservoir_id, start_date, end_date).await {
+            Ok(observations) => {
+                let mut ans: Vec<StringRecord> = Vec::with_capacity(observations.len());
+                for obs in observations {
+                    if let Ok(record) = obs.try_into() {
+                        ans.push(record);
+                    } else {
+                        panic!("failed to convert record");
+                    }
+                }
+                Ok(ans)
+            },
+            Err(e) => Err(e)
         }
+
     }
     async fn http_request_body(
         client: &Client,
@@ -569,6 +573,61 @@ impl Observation {
     }
 }
 
+impl TryFrom<Observation> for StringRecord {
+    fn try_from(value: Observation) -> Result<Self, Self::Error> {
+        //         r#"STATION_ID,DURATION,SENSOR_NUMBER,SENSOR_TYPE,DATE TIME,OBS DATE,VALUE,DATA_FLAG,UNITS
+        // VIL,D,15,STORAGE,20220215 0000,20220215 0000,9593, ,AF";
+        let station_id = value.station_id.to_uppercase();
+        let station_id_str = station_id.as_str();
+        let duration = match value.duration {
+            Duration::Daily => "D",
+            Duration::Monthly => "M",
+        };
+        let sensor_number = "15";
+        let sensor_type = "STORAGE";
+        let date_time = format!(
+            "{}{:02}{:02} 0000",
+            value.date_recording.year(),
+            value.date_recording.month(),
+            value.date_recording.day()
+        );
+        let date_time_str = date_time.as_str();
+        let date_obs = format!(
+            "{}{:02}{:02} 0000",
+            value.date_observation.year(),
+            value.date_observation.month(),
+            value.date_observation.day()
+        );
+        let date_obs_str = date_obs.as_str();
+        let val = match value.value {
+            DataRecording::Recording(a) => a.to_string(),
+            DataRecording::Art => String::from("ART"),
+            DataRecording::Brt => String::from("BRT"),
+            DataRecording::Dash => String::from("---"),
+        };
+        let val_str = val.as_str();
+        let data_flag = "";
+        let units = "AF";
+        let b = ByteRecord::from(vec![
+            station_id_str,
+            duration,
+            sensor_number,
+            sensor_type,
+            date_time_str,
+            date_obs_str,
+            val_str,
+            data_flag,
+            units,
+        ]);
+        match StringRecord::from_byte_record(b) {
+            Ok(s) => Ok(s),
+            Err(_) => Err(()),
+        }
+    }
+
+    type Error = ();
+}
+
 impl TryFrom<StringRecord> for Observation {
     type Error = ();
 
@@ -636,6 +695,7 @@ mod test {
     use super::{DataRecording, Duration};
     use crate::observation::Observation;
     use chrono::NaiveDate;
+    use csv::StringRecord;
     use reqwest::Client;
     use std::assert_ne;
 
@@ -973,5 +1033,36 @@ VIL,D,15,STORAGE,20220228 0000,20220228 0000,9597, ,AF
             smooth_operator, expected_observations,
             "failed to smooth observations"
         )
+    }
+    #[test]
+    fn test_observation_to_stringrecord() {
+        /// SHA,D,15,STORAGE,19850106 0000,19850106 0000,1694200,,AF
+        let obs_daily = Observation {
+            station_id: String::from("SHA"),
+            date_observation: NaiveDate::from_ymd(1985, 01, 06),
+            date_recording: NaiveDate::from_ymd(1985, 01, 06),
+            value: DataRecording::Recording(1694200),
+            duration: Duration::Daily,
+        };
+        let obs_monthly = Observation {
+            station_id: String::from("SHA"),
+            date_observation: NaiveDate::from_ymd(1985, 01, 06),
+            date_recording: NaiveDate::from_ymd(1985, 01, 06),
+            value: DataRecording::Recording(1694200),
+            duration: Duration::Monthly,
+        };
+        let obs_daily_string_record: StringRecord = obs_daily.try_into().unwrap();
+        let obs_monthly_string_record: StringRecord = obs_monthly.try_into().unwrap();
+        assert_eq!(&obs_daily_string_record[0], "SHA");
+        assert_eq!(&obs_daily_string_record[1], "D");
+        assert_eq!(&obs_daily_string_record[2], "15");
+        assert_eq!(&obs_daily_string_record[3], "STORAGE");
+        assert_eq!(&obs_daily_string_record[4], "19850106 0000");
+        assert_eq!(&obs_daily_string_record[5], "19850106 0000");
+        assert_eq!(&obs_daily_string_record[6], "1694200");
+        assert_eq!(&obs_daily_string_record[7], "");
+        assert_eq!(&obs_daily_string_record[8], "AF");
+        assert_eq!(&obs_monthly_string_record[1], "M");
+
     }
 }
