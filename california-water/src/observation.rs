@@ -127,7 +127,8 @@ impl Observation {
         start_date: &NaiveDate,
         end_date: &NaiveDate,
     ) -> Result<Vec<Observation>, ObservationError> {
-        let mut result: Result<Vec<Observation>, ObservationError> = Err(ObservationError::FunctionFail);
+        let mut result: Result<Vec<Observation>, ObservationError> =
+            Err(ObservationError::FunctionFail);
         let mut observations: Vec<Observation> = Vec::new();
         let request_body_daily =
             Observation::http_request_body(client, reservoir_id, start_date, end_date, "D").await;
@@ -147,22 +148,29 @@ impl Observation {
         // 2. insert into observations if the date does not exist
         if let Ok(body) = request_body_monthly {
             if let Ok(mut monthly_observations) = Observation::request_to_observations(body) {
-                let mut observations_to_add_from_monthly_interpolations: Vec<Observation> = Vec::new();
+                let mut observations_to_add_from_monthly_interpolations: Vec<Observation> =
+                    Vec::new();
                 // interpolate
-                let daily_observations_from_monthly_observations_interpolated: Vec<Observation> = Observation::linearly_interpolate_monthly_observations(&mut monthly_observations);
-                for interpolated_observation in daily_observations_from_monthly_observations_interpolated {
-                    let has_daily_value_is_recorded = observations
-                    .iter()
-                    .any(|observation| {
-                        let has_observation = interpolated_observation.date_observation == observation.date_observation;
-                        let is_recording = matches!(observation.value, DataRecording::Recording(..));
+                let daily_observations_from_monthly_observations_interpolated: Vec<Observation> =
+                    Observation::linearly_interpolate_monthly_observations(
+                        &mut monthly_observations,
+                    );
+                for interpolated_observation in
+                    daily_observations_from_monthly_observations_interpolated
+                {
+                    let has_daily_value_is_recorded = observations.iter().any(|observation| {
+                        let has_observation = interpolated_observation.date_observation
+                            == observation.date_observation;
+                        let is_recording =
+                            matches!(observation.value, DataRecording::Recording(..));
                         has_observation && is_recording
                     });
                     if !has_daily_value_is_recorded {
-                        observations_to_add_from_monthly_interpolations.push(interpolated_observation);
+                        observations_to_add_from_monthly_interpolations
+                            .push(interpolated_observation);
                     }
                 }
-                observations.append(&mut observations_to_add_from_monthly_interpolations);          
+                observations.append(&mut observations_to_add_from_monthly_interpolations);
             } else {
                 result = Err(ObservationError::HttpResponseParseError);
             }
@@ -176,6 +184,9 @@ impl Observation {
     fn linearly_interpolate_monthly_observations(
         monthly_observations: &mut Vec<Observation>,
     ) -> Vec<Observation> {
+        if monthly_observations.is_empty() {
+            return Vec::new();
+        }
         monthly_observations.sort();
         let mut output_vector: Vec<Observation> = Vec::new();
         // 1. need to make sure we have a pair of values we can operate over.
@@ -259,9 +270,13 @@ impl Observation {
                     };
                     output_vector.push(monthly_recording_as_daily);
                 }
+                (DataRecording::Recording(..), DataRecording::Recording(..)) => {
+                    markers.push(i);
+                    markers.push(i + 1);
+                }
                 _ => {}
             }
-            if i == (group_len - 1) {
+            if i == (group_len - 2) {
                 break;
             }
             i += 1; // do not i+2; still need to loop one-by-one
@@ -277,7 +292,9 @@ impl Observation {
         let markers_slice = markers.as_slice();
         for [x0usize, x1usize] in markers_slice.array_chunks::<2>() {
             let x0 = *x0usize as u32;
-            let x1 = *x1usize as u32;
+            let date_x0 = monthly_observations[*x0usize].date_observation;
+            let date_x1 = monthly_observations[*x1usize].date_observation;
+            let delta_x = (date_x1 - date_x0).num_days().abs() as usize;
             let y0 = match monthly_observations[*x0usize].value {
                 DataRecording::Recording(k) => k,
                 _ => panic!("failed to select value"),
@@ -287,19 +304,16 @@ impl Observation {
                 _ => panic!("failed to select value"),
             };
             let a = y1 - y0;
-            let b = x1 - x0;
-            let m = (a as f64) / (b as f64);
-
-            for (idx, x_i) in (x0..x1).enumerate() {
-                if x_i == x0 {
-                    continue;
-                }
-                let y_i = (m * ((x_i - x0) as f64) + (y1 as f64)).round() as u32;
+            let m = (a as f64) / (delta_x as f64);
+            // just fill in entries between
+            for xi in 1..delta_x {
+                let y_i = (m * ((xi - (x0 as usize)) as f64) + (y0 as f64)).round() as u32;
                 //make a daily observation
-                let idx_duration = chrono::Duration::days(idx as i64);
-                let date_observation = monthly_observations[*x1usize].date_observation + idx_duration;
-                let date_recording = monthly_observations[*x1usize].date_recording + idx_duration;
-                let station_id = monthly_observations[*x1usize].station_id.clone();
+                let idx_duration = chrono::Duration::days(xi as i64);
+                let date_observation =
+                    monthly_observations[*x0usize].date_observation + idx_duration;
+                let date_recording = monthly_observations[*x0usize].date_recording + idx_duration;
+                let station_id = monthly_observations[*x0usize].station_id.clone();
                 let ith_day_observation = Observation {
                     duration: Duration::Daily,
                     value: DataRecording::Recording(y_i),
@@ -309,18 +323,28 @@ impl Observation {
                 };
                 output_vector.push(ith_day_observation);
             }
-         // step 1
+            // add monthly_observations[*x0usize] and monthly_observations[*x1usize]
+            // as daily observations
+            let mut interpolated_thingers = vec![
+                Observation {
+                    duration: Duration::Daily,
+                    value: monthly_observations[*x0usize].value,
+                    date_observation: monthly_observations[*x0usize].date_observation,
+                    date_recording: monthly_observations[*x0usize].date_recording,
+                    station_id: monthly_observations[*x0usize].station_id.clone(),
+                },
+                Observation {
+                    duration: Duration::Daily,
+                    value: monthly_observations[*x1usize].value,
+                    date_observation: monthly_observations[*x1usize].date_observation,
+                    date_recording: monthly_observations[*x1usize].date_recording,
+                    station_id: monthly_observations[*x1usize].station_id.clone(),
+                },
+            ];
+            output_vector.append(&mut interpolated_thingers);
         }
-        // output_vector
-        // for &[obs_a, obs_b] in monthly_observations.windows(2) {
-        //     // check that they're both monthly
-        //     if obs_a.duration != Duration::Monthly || obs_b != Duration::Monthly {
-        //         panic!("observations must be monthly");
-        //     }
-        //     let days_between_entries = (obs_a.date_observation - obs_b.date_observation).num_days().abs() as usize;
-        //     let mut interpolated_observations: Vec<Observation> = Vec::with_capacity(days_between_entries);
-        // }
         output_vector.sort();
+        output_vector.dedup();
         output_vector
     }
 
@@ -421,7 +445,7 @@ impl Observation {
             let mut sorted_group = Vec::from(group);
             // sorting is the key step into the next flow
             sorted_group.sort();
-            let group_len = group.len();
+            let sorted_group_len = sorted_group.len();
             let mut markers: Vec<usize> = Vec::new();
             let mut i: usize = 0;
             // for the ith and (i+1)th element,
@@ -455,7 +479,8 @@ impl Observation {
                     }
                     _ => {}
                 }
-                if i == (group_len - 1) {
+                if i == (sorted_group_len - 2) {
+                    println!("catching the break");
                     break;
                 }
                 i += 1; // do not i+2; still need to loop one-by-one
@@ -488,7 +513,7 @@ impl Observation {
                     if x_i == x0 {
                         continue;
                     }
-                    let y_i = (m * ((x_i - x0) as f64) + (y1 as f64)).round() as u32;
+                    let y_i = (m * ((x_i - x0) as f64) + (y0 as f64)).round() as u32;
                     let x_i_as_usize = x_i as usize;
                     sorted_group[x_i_as_usize].value = DataRecording::Recording(y_i);
                 }
@@ -504,7 +529,7 @@ impl Observation {
                         is_need_of_filling = false;
                         break;
                     }
-                    if xi == group_len {
+                    if xi == sorted_group_len {
                         break;
                     }
                     xi += 1;
@@ -514,7 +539,7 @@ impl Observation {
                     let k = sorted_group[markers[markers_len - 1]].value;
                     for item in sorted_group
                         .iter_mut()
-                        .take(group_len)
+                        .take(sorted_group_len)
                         .skip(markers[markers_len - 1] + 1)
                     {
                         item.value = k;
@@ -590,19 +615,25 @@ impl Eq for Observation {}
 
 impl PartialEq for Observation {
     fn eq(&self, other: &Self) -> bool {
-        self.date_observation == other.date_observation && self.station_id == other.station_id
+        self.date_observation == other.date_observation
+            && self.station_id == other.station_id
+            && self.date_recording == other.date_recording
+            && self.value == other.value
     }
 }
 
 impl PartialOrd for Observation {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        if self.station_id != other.station_id {
+            return None;
+        }
         Some(self.cmp(other))
     }
 }
 
 #[cfg(test)]
 mod test {
-    use super::DataRecording;
+    use super::{DataRecording, Duration};
     use crate::observation::Observation;
     use chrono::NaiveDate;
     use reqwest::Client;
@@ -649,7 +680,8 @@ VIL,D,15,STORAGE,20220228 0000,20220228 0000,9597, ,AF
         let end_date = NaiveDate::from_ymd(2022, 02, 28);
         let client = Client::new();
         let observations =
-            Observation::http_request_body(&client, reservoir_id, &start_date, &end_date).await;
+            Observation::http_request_body(&client, reservoir_id, &start_date, &end_date, "D")
+                .await;
         assert_eq!(
             observations.unwrap().as_str().replace("\r\n", "\n"),
             STR_RESULT
@@ -679,5 +711,267 @@ VIL,D,15,STORAGE,20220228 0000,20220228 0000,9597, ,AF
         let string_result = String::from(STR_RESULT);
         let observations = Observation::request_to_observations(string_result).unwrap();
         assert_eq!(observations[0].value, DataRecording::Recording(9593));
+    }
+
+    #[test]
+    fn test_smooth_observations() {
+        /// SHA,D,15,STORAGE,19850101 0000,19850101 0000,1543200,,AF
+        /// SHA,D,15,STORAGE,19850102 0000,19850102 0000,1573400,,AF
+        /// SHA,D,15,STORAGE,19850103 0000,19850103 0000,1603600,,AF
+        /// SHA,D,15,STORAGE,19850104 0000,19850104 0000,1633800,,AF
+        /// SHA,D,15,STORAGE,19850105 0000,19850105 0000,1664000,,AF
+        /// SHA,D,15,STORAGE,19850106 0000,19850106 0000,1694200,,AF
+        let expected_observations = vec![
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 01),
+                date_recording: NaiveDate::from_ymd(1985, 01, 01),
+                value: DataRecording::Recording(1543200),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 02),
+                date_recording: NaiveDate::from_ymd(1985, 01, 02),
+                value: DataRecording::Recording(1573400),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 03),
+                date_recording: NaiveDate::from_ymd(1985, 01, 03),
+                value: DataRecording::Recording(1603600),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 04),
+                date_recording: NaiveDate::from_ymd(1985, 01, 04),
+                value: DataRecording::Recording(1633800),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 05),
+                date_recording: NaiveDate::from_ymd(1985, 01, 05),
+                value: DataRecording::Recording(1664000),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 06),
+                date_recording: NaiveDate::from_ymd(1985, 01, 06),
+                value: DataRecording::Recording(1694200),
+                duration: Duration::Daily,
+            },
+        ];
+        let mut test_sample = vec![
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 01),
+                date_recording: NaiveDate::from_ymd(1985, 01, 01),
+                value: DataRecording::Recording(1543200),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 02),
+                date_recording: NaiveDate::from_ymd(1985, 01, 02),
+                value: DataRecording::Dash,
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 03),
+                date_recording: NaiveDate::from_ymd(1985, 01, 03),
+                value: DataRecording::Dash,
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 04),
+                date_recording: NaiveDate::from_ymd(1985, 01, 04),
+                value: DataRecording::Art,
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 05),
+                date_recording: NaiveDate::from_ymd(1985, 01, 05),
+                value: DataRecording::Brt,
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 06),
+                date_recording: NaiveDate::from_ymd(1985, 01, 06),
+                value: DataRecording::Recording(1694200),
+                duration: Duration::Daily,
+            },
+        ];
+        let smooth_operator = Observation::smooth_observations(&mut test_sample);
+        assert_eq!(
+            smooth_operator, expected_observations,
+            "failed to smooth observations"
+        )
+    }
+
+    #[test]
+    fn test_linearly_interpolate_observations() {
+        /// SHA,D,15,STORAGE,19850101 0000,19850101 0000,1543200,,AF
+        /// SHA,D,15,STORAGE,19850102 0000,19850102 0000,1573400,,AF
+        /// SHA,D,15,STORAGE,19850103 0000,19850103 0000,1603600,,AF
+        /// SHA,D,15,STORAGE,19850104 0000,19850104 0000,1633800,,AF
+        /// SHA,D,15,STORAGE,19850105 0000,19850105 0000,1664000,,AF
+        /// SHA,D,15,STORAGE,19850106 0000,19850106 0000,1694200,,AF
+        let expected_observations = vec![
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 01),
+                date_recording: NaiveDate::from_ymd(1985, 01, 01),
+                value: DataRecording::Recording(1543200),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 02),
+                date_recording: NaiveDate::from_ymd(1985, 01, 02),
+                value: DataRecording::Recording(1573400),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 03),
+                date_recording: NaiveDate::from_ymd(1985, 01, 03),
+                value: DataRecording::Recording(1603600),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 04),
+                date_recording: NaiveDate::from_ymd(1985, 01, 04),
+                value: DataRecording::Recording(1633800),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 05),
+                date_recording: NaiveDate::from_ymd(1985, 01, 05),
+                value: DataRecording::Recording(1664000),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 06),
+                date_recording: NaiveDate::from_ymd(1985, 01, 06),
+                value: DataRecording::Recording(1694200),
+                duration: Duration::Daily,
+            },
+        ];
+        let mut test_sample = vec![
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 01),
+                date_recording: NaiveDate::from_ymd(1985, 01, 01),
+                value: DataRecording::Recording(1543200),
+                duration: Duration::Monthly,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 06),
+                date_recording: NaiveDate::from_ymd(1985, 01, 06),
+                value: DataRecording::Recording(1694200),
+                duration: Duration::Monthly,
+            },
+        ];
+        let smooth_operator =
+            Observation::linearly_interpolate_monthly_observations(&mut test_sample);
+        assert_eq!(
+            smooth_operator, expected_observations,
+            "failed to smooth observations"
+        )
+    }
+
+    #[test]
+    fn test_linearly_interpolate_observations2() {
+        /// SHA,D,15,STORAGE,19850101 0000,19850101 0000,1543200,,AF
+        /// SHA,D,15,STORAGE,19850102 0000,19850102 0000,1573400,,AF
+        /// SHA,D,15,STORAGE,19850103 0000,19850103 0000,1603600,,AF
+        /// SHA,D,15,STORAGE,19850104 0000,19850104 0000,1633800,,AF
+        /// SHA,D,15,STORAGE,19850105 0000,19850105 0000,1664000,,AF
+        /// SHA,D,15,STORAGE,19850106 0000,19850106 0000,1694200,,AF
+        let expected_observations = vec![
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 01),
+                date_recording: NaiveDate::from_ymd(1985, 01, 01),
+                value: DataRecording::Recording(1543200),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 02),
+                date_recording: NaiveDate::from_ymd(1985, 01, 02),
+                value: DataRecording::Recording(1573400),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 03),
+                date_recording: NaiveDate::from_ymd(1985, 01, 03),
+                value: DataRecording::Recording(1603600),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 04),
+                date_recording: NaiveDate::from_ymd(1985, 01, 04),
+                value: DataRecording::Recording(1633800),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 05),
+                date_recording: NaiveDate::from_ymd(1985, 01, 05),
+                value: DataRecording::Recording(1664000),
+                duration: Duration::Daily,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 06),
+                date_recording: NaiveDate::from_ymd(1985, 01, 06),
+                value: DataRecording::Recording(1694200),
+                duration: Duration::Daily,
+            },
+        ];
+        let mut test_sample = vec![
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 01),
+                date_recording: NaiveDate::from_ymd(1985, 01, 01),
+                value: DataRecording::Recording(1543200),
+                duration: Duration::Monthly,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 03),
+                date_recording: NaiveDate::from_ymd(1985, 01, 03),
+                value: DataRecording::Dash,
+                duration: Duration::Monthly,
+            },
+            Observation {
+                station_id: String::from("SHA"),
+                date_observation: NaiveDate::from_ymd(1985, 01, 06),
+                date_recording: NaiveDate::from_ymd(1985, 01, 06),
+                value: DataRecording::Recording(1694200),
+                duration: Duration::Monthly,
+            },
+        ];
+        let smooth_operator =
+            Observation::linearly_interpolate_monthly_observations(&mut test_sample);
+        assert_eq!(
+            smooth_operator, expected_observations,
+            "failed to smooth observations"
+        )
     }
 }
